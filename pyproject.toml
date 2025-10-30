@@ -40,6 +40,7 @@ dependencies = [
   "torch>=2.7.0",
   "transformers==4.55.2",
   "beaker-py",
+  "pip>=25.3",
 ]
 license = {file = "LICENSE"}
 
