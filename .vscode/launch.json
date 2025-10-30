@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug OLMOCR Benchmark",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "olmocr.bench.benchmark",
+            "args": [
+                "--dir",
+                "./olmOCR-bench/bench_data",
+                "--test_report",
+                "--skip_math",
+                // "--force",
+                "--sample",
+                "50",
+                "--md_folder",
+                "/Users/bogdan/Code/olmocr/runs/mds_sonnet4"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

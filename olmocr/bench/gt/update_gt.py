@@ -71,17 +71,15 @@ def update_gt_data(data: list[dict], args) -> list[dict]:
         removed_count = initial_count - len(updated_data)
         print(f"  Removed {removed_count} tests where {field}='{value}'")
 
-    # Operation 2: Update field to new value for all tests
+    # Operation 2: Update field from old value to new value
     if args.update_field:
-        field, value = args.update_field
+        field, old_value, new_value = args.update_field
+        updated_count = 0
         for item in updated_data:
-            item[field] = value
-        print(f"  Updated field '{field}' to '{value}' for all {len(updated_data)} tests")
-
-    # TODO: Add your custom update logic here
-    # Example: Add a new field to each entry
-    # for item in updated_data:
-    #     item['new_field'] = 'new_value'
+            if str(item.get(field)) == old_value:
+                item[field] = new_value
+                updated_count += 1
+        print(f"  Updated field '{field}' from '{old_value}' to '{new_value}' for {updated_count} tests")
 
     return updated_data
 
@@ -110,9 +108,9 @@ def main():
     )
     parser.add_argument(
         "--update-field",
-        nargs=2,
-        metavar=("FIELD", "VALUE"),
-        help="Update FIELD to VALUE for all tests (e.g., --update-field status reviewed)"
+        nargs=3,
+        metavar=("FIELD", "OLD_VALUE", "NEW_VALUE"),
+        help="Update FIELD from OLD_VALUE to NEW_VALUE (e.g., --update-field status pending reviewed)"
     )
 
     args = parser.parse_args()

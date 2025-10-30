@@ -31,7 +31,7 @@ from .utils import calculate_bootstrap_ci
 
 
 def evaluate_candidate(
-    candidate_folder: str, all_tests: List[BasePDFTest], pdf_basenames: List[str], force: bool = False
+    candidate_folder: str, all_tests: List[BasePDFTest], pdf_basenames: List[str], force: bool = False, md_folder: str | None = None
 ) -> Tuple[float, int, List[str], List[str], Dict[str, List[float]], List[float], Dict[str, Dict[int, List[Tuple[BasePDFTest, bool, str]]]]]:
     """
     For the candidate folder (pipeline tool output), validate that it contains at least one .md file
@@ -59,16 +59,26 @@ def evaluate_candidate(
 
     # Map each PDF to its corresponding MD repeats (e.g., doc1_pg1_repeat1.md, doc1_pg2_repeat2.md, etc.)
     pdf_to_md_files = {}
-    all_files = list(glob.glob(os.path.join(candidate_folder, "**/*.md"), recursive=True))
+    # Use md_folder if provided, otherwise use candidate_folder
+    search_folder = md_folder if md_folder else candidate_folder
+    all_files = list(glob.glob(os.path.join(search_folder, "**/*.md"), recursive=True))
 
     for pdf_name in pdf_basenames:
         md_base = os.path.splitext(pdf_name)[0]
+        # Try pattern 1: {pdf_base}_pg{page}_repeat{repeat}.md
         md_regex = re.compile(rf"^{re.escape(md_base)}_pg\d+_repeat\d+\.md$")
-        md_files = [f for f in all_files if md_regex.match(os.path.relpath(f, candidate_folder))]
+        md_files = [f for f in all_files if md_regex.match(os.path.relpath(f, search_folder))]
+
+        # Try pattern 2: {pdf_base}.md (exact match to PDF name)
+        if not md_files:
+            md_exact = os.path.join(search_folder, md_base + ".md")
+            if os.path.exists(md_exact):
+                md_files = [md_exact]
 
         if not md_files and not force:
             candidate_errors.append(
-                f"Candidate '{candidate_name}' is missing MD repeats for {pdf_name} " f"(expected files matching {md_base}_pg{{page}}_repeat*.md)."
+                f"Candidate '{candidate_name}' is missing MD repeats for {pdf_name} "
+                f"(expected files matching {md_base}_pg{{page}}_repeat*.md or {md_base}.md)."
             )
         else:
             pdf_to_md_files[pdf_name] = md_files
@@ -90,12 +100,22 @@ def evaluate_candidate(
 
         md_base = os.path.splitext(pdf_name)[0]
         md_files = pdf_to_md_files.get(pdf_name, [])
+
         # Filter MD files for the specific page corresponding to the test
         page_md_files = [f for f in md_files if re.search(rf"_pg{test.page}_", os.path.basename(f))]
+
+        # If no page-specific files found, check if we have a single MD file matching the PDF name
+        # In this case, use it for all pages
+        if not page_md_files and md_files:
+            # Check if any of the MD files match the exact PDF name pattern (no page/repeat suffix)
+            exact_match_files = [f for f in md_files if os.path.basename(f) == os.path.basename(md_base + ".md")]
+            if exact_match_files:
+                page_md_files = exact_match_files
+
         if not page_md_files:
             local_errors.append(
                 f"Candidate '{candidate_name}' is missing MD repeats for {pdf_name} page {test.page} "
-                f"(expected files matching {md_base}_pg{test.page}_repeat*.md)."
+                f"(expected files matching {md_base}_pg{test.page}_repeat*.md or {md_base}.md)."
             )
             test_results[pdf_name][test.page].append((test, False, "Missing MD files"))
             return (0.0, None, test.type, local_errors, (False, "Missing MD files"))
@@ -173,6 +193,7 @@ def main():
     )
     parser.add_argument("--candidate", type=str, default=None, help="Run test only for a single candidate")
     parser.add_argument("--skip_baseline", action="store_true", help="Skip running baseline tests (ex. that check that basic content is present on each page)")
+    parser.add_argument("--skip_math", action="store_true", help="Skip JSONL files containing 'math' in their filename")
     parser.add_argument(
         "--bootstrap_samples",
         type=int,
@@ -187,9 +208,19 @@ def main():
     )
     # New arguments
     parser.add_argument("--sample", type=int, default=None, help="Randomly sample N tests to run instead of all tests.")
-    parser.add_argument("--test_report", type=str, default=None, help="Generate an HTML report of test results. Provide a filename (e.g., results.html).")
+    parser.add_argument(
+        "--test_report",
+        type=str,
+        nargs="?",
+        const="auto",
+        default=None,
+        help="Generate an HTML report. Provide a filename or leave empty for auto-generated timestamped filename (_eval_report_YYYYMMDD_HHMMSS.html)"
+    )
     parser.add_argument(
         "--output_failed", type=str, default=None, help="Output a JSONL file containing tests that failed across all candidates. Provide a filename."
+    )
+    parser.add_argument(
+        "--md_folder", type=str, default=None, help="Read markdown files from this specific folder instead of candidate subfolders."
     )
     args = parser.parse_args()
 
@@ -213,7 +244,14 @@ def main():
     if os.path.isfile(args.dir):
         jsonl_files = [args.dir]
     else:
-        jsonl_files = glob.glob(os.path.join(input_folder, "*.jsonl"))
+        all_jsonl_files = glob.glob(os.path.join(input_folder, "*.jsonl"))
+        # Filter out backup files with datetime pattern (name_YYYYMMDD_HHMMSS.jsonl)
+        jsonl_files = [f for f in all_jsonl_files if not re.search(r'_\d{8}_\d{6}\.jsonl$', f)]
+
+    # Filter out math files if requested
+    if args.skip_math:
+        jsonl_files = [f for f in jsonl_files if 'math' not in os.path.basename(f).lower()]
+        print(f"Skipping math-related JSONL files (--skip_math enabled)")
 
     if not jsonl_files:
         print(f"Error: No .jsonl files found in {input_folder}.", file=sys.stderr)
@@ -247,6 +285,23 @@ def main():
     if args.skip_baseline:
         all_tests = [test for test in all_tests if test.type != "baseline"]
 
+    candidate_folders = []
+
+    # If md_folder is specified, use a dummy candidate folder (just for naming)
+    if args.md_folder:
+        # Use the md_folder name as the candidate name
+        candidate_name = os.path.basename(args.md_folder.rstrip('/'))
+        candidate_folders.append(args.md_folder)
+    else:
+        for entry in os.listdir(input_folder):
+            full_path = os.path.join(input_folder, entry)
+            if args.candidate is not None:
+                if entry == args.candidate:
+                    candidate_folders.append(full_path)
+            else:
+                if os.path.isdir(full_path) and entry != "pdfs":
+                    candidate_folders.append(full_path)
+
     # Sample tests if requested
     if args.sample is not None and args.sample > 0:
         if args.sample >= len(all_tests):
@@ -254,16 +309,6 @@ def main():
         else:
             print(f"Randomly sampling {args.sample} tests out of {len(all_tests)} total tests.")
             all_tests = random.sample(all_tests, args.sample)
-
-    candidate_folders = []
-    for entry in os.listdir(input_folder):
-        full_path = os.path.join(input_folder, entry)
-        if args.candidate is not None:
-            if entry == args.candidate:
-                candidate_folders.append(full_path)
-        else:
-            if os.path.isdir(full_path) and entry != "pdfs":
-                candidate_folders.append(full_path)
 
     if not candidate_folders:
         print("Error: No candidate pipeline folders found (subdirectories besides 'pdfs').", file=sys.stderr)
@@ -279,7 +324,7 @@ def main():
         candidate_name = os.path.basename(candidate)
         print(f"\nEvaluating candidate: {candidate_name}")
         overall_score, total_tests, candidate_errors, test_failures, test_type_breakdown, all_test_scores, test_results = evaluate_candidate(
-            candidate, all_tests, pdf_basenames, args.force
+            candidate, all_tests, pdf_basenames, args.force, args.md_folder
         )
 
         # Always store test results for displaying jsonl file groupings
@@ -409,7 +454,27 @@ def main():
 
     # Generate HTML report if requested
     if args.test_report:
-        generate_html_report(test_results_by_candidate, pdf_folder, args.test_report)
+        from datetime import datetime
+
+        # Determine the report filename
+        if args.test_report == "auto":
+            # Auto-generate timestamped filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_filename = f"_eval_report_{timestamp}.html"
+
+            # Save report in the MD folder (first candidate folder or md_folder if specified)
+            if args.md_folder:
+                report_path = os.path.join(args.md_folder, report_filename)
+            elif candidate_folders:
+                report_path = os.path.join(candidate_folders[0], report_filename)
+            else:
+                report_path = report_filename
+        else:
+            # Use the user-provided filename
+            report_path = args.test_report
+
+        generate_html_report(test_results_by_candidate, pdf_folder, report_path)
+        print(f"\nHTML report saved to: {report_path}")
 
     # Output tests that failed across all candidates if requested
     if args.output_failed:
