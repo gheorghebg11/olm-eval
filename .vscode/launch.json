@@ -5,17 +5,17 @@
             "name": "Run Parser",
             "type": "debugpy",
             "request": "launch",
-            "module": "parsers.run_parser",
+            "program": "${workspaceFolder}/parsers/run_parser.py",
             "args": [
-                "/Users/bogdan/Code/olmocr/olmOCR-bench/bench_data_tiny/pdfs",
+                "/Users/bogdan/Code/olmocr/olmOCR-bench/bench_data_med/pdfs",
                 "llamaparse",
                 "--config",
-                "agent_openai_gpt41mini",
-                "-r",  // look for all files in folder recursively
+                "agent_haiku45",
+                "-r",
                 "--extensions",
                 ".pdf",
-                "--output-suffix",
-                "test_run"
+                "--max-concurrency",
+                "50"
             ],
             "console": "integratedTerminal",
             "justMyCode": true,
@@ -27,15 +27,13 @@
             "request": "launch",
             "module": "olmocr.bench.benchmark",
             "args": [
-                "--dir",
-                "./olmOCR-bench/bench_data_tiny",
+                "--md_folder",
+                "/Users/bogdan/Code/olmocr/runs/20251031_150035_llamaparse_agent_haiku45",
                 "--test_report",
                 "--skip_math",
                 "--force",
                 // "--sample",
                 // "50",
-                "--md_folder",
-                "/Users/bogdan/Code/olmocr/runs/20251031_133724_test_run"
             ],
             "console": "integratedTerminal",
             "justMyCode": true,

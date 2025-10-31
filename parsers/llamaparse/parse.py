@@ -82,7 +82,7 @@ async def parse_file_async(parser: LlamaParse, file_path: str, index: int, outpu
         }
 
 
-async def parse_multiple_files_parallel(file_paths: list[str], parser_config: dict | None = None, output_dir: str | None = None, input_base_dir: str | None = None):
+async def parse_multiple_files_parallel(file_paths: list[str], parser_config: dict, output_dir: str | None = None, input_base_dir: str | None = None, max_concurrency: int | None = None):
     """
     Parse multiple files in parallel using asyncio.gather().
 
@@ -91,29 +91,35 @@ async def parse_multiple_files_parallel(file_paths: list[str], parser_config: di
         parser_config: Optional parser configuration dict
         output_dir: Optional output directory for results
         input_base_dir: Optional base directory to preserve relative structure
+        max_concurrency: Optional maximum number of concurrent parsing tasks
     """
-    # Initialize parser with config
-    config = parser_config or {
-        "parse_mode": "parse_page_with_agent",
-        "model": "openai-gpt-4-1-mini",
-        "high_res_ocr": True,
-        "adaptive_long_table": True,
-        "outlined_table_extraction": True,
-        "output_tables_as_HTML": True,
-    }
 
-    parser = LlamaParse(**config)
+    parser = LlamaParse(**parser_config)
 
-    print(f"Starting parallel parsing of {len(file_paths)} files...")
+    if max_concurrency:
+        print(f"Starting parallel parsing of {len(file_paths)} files (max concurrency: {max_concurrency})...")
+    else:
+        print(f"Starting parallel parsing of {len(file_paths)} files (unlimited concurrency)...")
     start_time = time.time()
+
+    # Create semaphore for concurrency control if max_concurrency is specified
+    semaphore = asyncio.Semaphore(max_concurrency) if max_concurrency else None
+
+    async def parse_with_semaphore(parser, file_path, index, output_dir, input_base_dir):
+        """Wrapper to add semaphore control if needed."""
+        if semaphore:
+            async with semaphore:
+                return await parse_file_async(parser, file_path, index, output_dir, input_base_dir)
+        else:
+            return await parse_file_async(parser, file_path, index, output_dir, input_base_dir)
 
     # Create tasks for all files
     tasks = [
-        parse_file_async(parser, file_path, i, output_dir, input_base_dir)
+        parse_with_semaphore(parser, file_path, i, output_dir, input_base_dir)
         for i, file_path in enumerate(file_paths, 1)
     ]
 
-    # Run all tasks in parallel
+    # Run all tasks in parallel (with semaphore limiting concurrency if specified)
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     total_elapsed = time.time() - start_time
@@ -396,15 +402,13 @@ async def main():
         help="Path to a text file containing file paths (one per line) OR a directory to search recursively"
     )
     parser.add_argument(
-        "--parser-name",
+        "parser",
         type=str,
-        default="llamaparse",
         help="Name of the parser being used (default: llamaparse). Options: llamaparse, reducto, etc."
     )
     parser.add_argument(
         "--config",
         type=str,
-        default=None,
         help="Path to JSON config file (e.g., configs/agent_openai_gpt41mini.json). If not provided, uses default config."
     )
     parser.add_argument(
@@ -426,6 +430,12 @@ async def main():
         action="store_true",
         help="Recursively search for files in subdirectories (only applies when input is a directory)"
     )
+    parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=50,
+        help="Maximum number of files to parse concurrently. If not specified, all files are parsed in parallel."
+    )
 
     args = parser.parse_args()
 
@@ -434,21 +444,28 @@ async def main():
     os.environ["LLAMA_CLOUD_API_KEY"] = os.environ["STAGING_API_KEY"]
     os.environ["LLAMA_CLOUD_BASE_URL"] = os.environ["STAGING_BASE_URL"]
 
-    # Load config if provided
-    parser_config = None
-    if args.config:
-        parser_config = load_config(args.config)
+    # Load parser and config
+    parser_name = args.parser
+    parser_config = load_config(args.config)
+    config_to_save = {
+        "parser": parser_name,
+        "config": parser_config
+    }
 
     # Determine if input is a file list or directory
     input_base_dir = None
     if os.path.isfile(args.input):
         # Load file paths from text file
         file_paths = load_file_paths(args.input, args.extensions)
+        # For file input, save the directory containing the file list
+        config_to_save["pdfs_dir"] = os.path.abspath(os.path.dirname(args.input))
     elif os.path.isdir(args.input):
         # Find files in directory (recursive if -r flag is set)
         file_paths = find_files_in_dir(args.input, args.extensions, args.recursive)
         if args.recursive:
             input_base_dir = args.input  # Preserve directory structure for recursive mode
+        # Save the input directory as pdfs_dir
+        config_to_save["pdfs_dir"] = os.path.abspath(args.input)
     else:
         print(f"Error: Input '{args.input}' is neither a file nor a directory")
         return
@@ -456,13 +473,14 @@ async def main():
     if not file_paths:
         print("No files to process after filtering.")
         return
-
+    
     # Create timestamped output directory in runs/
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if args.output_suffix:
-        output_dir = f"runs/{timestamp}_{args.output_suffix}"
+    if args.output_suffix is not None:
+        output_suffix = args.output_suffix.strip()
     else:
-        output_dir = f"runs/{timestamp}"
+        output_suffix = parser_name.strip() + "_" + args.config.split("/")[-1].split(".json")[0]
+    output_dir = f"runs/{timestamp}_{output_suffix}"
 
     print(f"Output directory: {output_dir}")
 
@@ -470,33 +488,21 @@ async def main():
     os.makedirs(output_dir, exist_ok=True)
     config_save_path = os.path.join(output_dir, "_parse_config.json")
 
-    # Prepare config to save (use parser_config if provided, otherwise use defaults)
-    actual_config = parser_config or {
-        "parse_mode": "parse_page_with_agent",
-        "model": "openai-gpt-4-1-mini",
-        "high_res_ocr": True,
-        "adaptive_long_table": True,
-        "outlined_table_extraction": True,
-        "output_tables_as_html": True,
-    }
-
-    # Use the parser_name from args (e.g., "llamaparse", "reducto")
-    parser_name = args.parser_name
-
-    # Structure: {"parser": "parser_name", "config": {full_config}}
-    config_to_save = {
-        "parser": parser_name,
-        "config": actual_config
-    }
 
     with open(config_save_path, 'w') as f:
         json.dump(config_to_save, f, indent=2)
     print(f"Saved parse config to: {config_save_path}")
     print(f"  Parser: {parser_name}")
-    if "parse_mode" in actual_config:
-        print(f"  Parse mode: {actual_config['parse_mode']}")
+    if "parse_mode" in parser_config:
+        print(f"  Parse mode: {parser_config['parse_mode']}")
 
-    results = await parse_multiple_files_parallel(file_paths, parser_config=parser_config, output_dir=output_dir, input_base_dir=input_base_dir)
+    results = await parse_multiple_files_parallel(
+        file_paths,
+        parser_config=parser_config,
+        output_dir=output_dir,
+        input_base_dir=input_base_dir,
+        max_concurrency=args.max_concurrency
+    )
 
     # Process successful results
     successful_results = [r for r in results if isinstance(r, dict) and r.get("success")]

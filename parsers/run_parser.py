@@ -50,7 +50,7 @@ async def run_parser_async(parser_name: str, config_name: str | None, input_path
         return 1
 
     # Build command
-    cmd = [sys.executable, "-m", f"parsers.{parser_name}.parse", input_path]
+    cmd = [sys.executable, "-m", f"parsers.{parser_name}.parse", input_path, parser_name]
 
     # Add config if specified
     if config_name:

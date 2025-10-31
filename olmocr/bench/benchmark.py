@@ -190,9 +190,14 @@ def evaluate_candidate(
 def main():
     parser = argparse.ArgumentParser(description="Run OLMOCR Bench.")
     parser.add_argument(
-        "--dir",
-        default=os.path.join(os.path.dirname(__file__), "sample_data"),
-        help="Path to the folder containing .jsonl files, /pdfs folder, and pipeline tool subfolders.",
+        "--gt_dir",
+        default=None,
+        help="Path to the ground truth folder containing .jsonl files and /pdfs subfolder. Can be inferred from --pdfs_dir or _parse_config.json.",
+    )
+    parser.add_argument(
+        "--pdfs_dir",
+        default=None,
+        help="Path to the PDFs folder. Can be inferred from --gt_dir (as gt_dir/pdfs) or _parse_config.json.",
     )
     parser.add_argument(
         "--force",
@@ -232,14 +237,73 @@ def main():
     )
     args = parser.parse_args()
 
-    input_folder = args.dir if os.path.isdir(args.dir) else os.path.dirname(args.dir)
+    import json
+
+    # Try to load pdfs_dir from _parse_config.json if md_folder is provided
+    pdfs_dir_from_config = None
+    if args.md_folder:
+        config_path = os.path.join(args.md_folder, "_parse_config.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    config_data = json.load(f)
+                pdfs_dir_from_config = config_data.get('pdfs_dir')
+                if pdfs_dir_from_config:
+                    print(f"Found pdfs_dir in _parse_config.json: {pdfs_dir_from_config}")
+            except Exception as e:
+                print(f"Warning: Could not load pdfs_dir from {config_path}: {e}", file=sys.stderr)
+
+    # Infer gt_dir and pdfs_dir based on what's provided
+    gt_dir = args.gt_dir
+    pdfs_dir = args.pdfs_dir
+
+    # Case 1: Both provided - validate they're consistent
+    if gt_dir is not None and pdfs_dir is not None:
+        expected_pdfs = os.path.join(gt_dir, "pdfs")
+        if os.path.normpath(pdfs_dir) != os.path.normpath(expected_pdfs):
+            print(f"Warning: --pdfs_dir ({pdfs_dir}) doesn't match --gt_dir/pdfs ({expected_pdfs})", file=sys.stderr)
+
+    # Case 2: Only gt_dir provided - infer pdfs_dir
+    elif gt_dir is not None:
+        pdfs_dir = os.path.join(gt_dir, "pdfs")
+
+    # Case 3: Only pdfs_dir provided - try to infer gt_dir
+    elif pdfs_dir is not None:
+        if os.path.basename(pdfs_dir) == "pdfs":
+            gt_dir = os.path.dirname(pdfs_dir)
+            print(f"Inferred gt_dir from pdfs_dir: {gt_dir}")
+        else:
+            print("Error: --pdfs_dir provided but parent directory is not named 'pdfs'. Please provide --gt_dir.", file=sys.stderr)
+            sys.exit(1)
+
+    # Case 4: Neither provided - try to use pdfs_dir from config
+    else:
+        if pdfs_dir_from_config:
+            pdfs_dir = pdfs_dir_from_config
+            # Try to infer gt_dir from pdfs_dir
+            if os.path.basename(pdfs_dir) == "pdfs":
+                gt_dir = os.path.dirname(pdfs_dir)
+                print(f"Inferred gt_dir from config's pdfs_dir: {gt_dir}")
+            else:
+                print("Error: pdfs_dir from config doesn't have 'pdfs' as basename. Please provide --gt_dir.", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print("Error: No --gt_dir, --pdfs_dir, or pdfs_dir in _parse_config.json. Cannot determine directories.", file=sys.stderr)
+            sys.exit(1)
+
+    # Validate directories exist
+    if not os.path.exists(pdfs_dir):
+        print(f"Error: PDFs folder does not exist: {pdfs_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    if not os.path.isdir(pdfs_dir):
+        print(f"Error: PDFs path is not a directory: {pdfs_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    input_folder = gt_dir if os.path.isdir(gt_dir) else os.path.dirname(gt_dir)
     n_bootstrap = args.bootstrap_samples
     ci_level = args.confidence_level
-    pdf_folder = os.path.join(input_folder, "pdfs")
-
-    if not os.path.exists(pdf_folder):
-        print("Error: /pdfs folder must exist in your data directory.", file=sys.stderr)
-        sys.exit(1)
+    pdf_folder = pdfs_dir
 
     all_pdf_files = list(glob.glob(os.path.join(pdf_folder, "**/*.pdf"), recursive=True))
 
@@ -249,12 +313,10 @@ def main():
 
     pdf_basenames = [os.path.relpath(p, pdf_folder) for p in all_pdf_files]
 
-    if os.path.isfile(args.dir):
-        jsonl_files = [args.dir]
-    else:
-        all_jsonl_files = glob.glob(os.path.join(input_folder, "*.jsonl"))
-        # Filter out backup files with datetime pattern (name_YYYYMMDD_HHMMSS.jsonl)
-        jsonl_files = [f for f in all_jsonl_files if not re.search(r'_\d{8}_\d{6}\.jsonl$', f)]
+    # Find all JSONL files in gt_dir
+    all_jsonl_files = glob.glob(os.path.join(input_folder, "*.jsonl"))
+    # Filter out backup files with datetime pattern (name_YYYYMMDD_HHMMSS.jsonl)
+    jsonl_files = [f for f in all_jsonl_files if not re.search(r'_\d{8}_\d{6}\.jsonl$', f)]
 
     # Filter out math files if requested
     if args.skip_math:
@@ -522,11 +584,7 @@ def main():
                     print(f"Warning: Could not load parse config from {config_path}: {e}")
 
         # Determine the actual folder containing JSONL files
-        # If args.dir is a file, use its directory; otherwise use input_folder
-        if os.path.isfile(args.dir):
-            jsonl_folder_for_report = os.path.dirname(args.dir)
-        else:
-            jsonl_folder_for_report = input_folder
+        jsonl_folder_for_report = input_folder
 
         generate_html_report(
             test_results_by_candidate,
