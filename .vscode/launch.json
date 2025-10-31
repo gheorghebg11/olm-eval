@@ -2,37 +2,37 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Run LlamaParse",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "parsers.llamaparse.llamaparse",
+            "args": [
+                "/Users/bogdan/Code/olmocr/olmOCR-bench/bench_data_tiny/pdfs",
+                "-r",  // look for all files in folder recursively
+                "--extensions",
+                ".pdf",
+                "--output-suffix",
+                "test_run"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}"
+        }
+        {
             "name": "Run Benchmark",
             "type": "debugpy",
             "request": "launch",
             "module": "olmocr.bench.benchmark",
             "args": [
                 "--dir",
-                "./olmOCR-bench/bench_data_test",
+                "./olmOCR-bench/bench_data_tiny",
                 "--test_report",
                 "--skip_math",
                 "--force",
                 // "--sample",
                 // "50",
                 "--md_folder",
-                "/Users/bogdan/Code/olmocr/runs/20251031_113257_test_run"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Run LlamaParse",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "parsers.llamaparse.llamaparse",
-            "args": [
-                "/Users/bogdan/Code/olmocr/olmOCR-bench/bench_data_test/pdfs",
-                "-r",  // look for all files in folder recursively
-                "--extensions",
-                ".pdf",
-                "--output-suffix",
-                "test_run"
+                "/Users/bogdan/Code/olmocr/runs/20251031_115057_test_run"
             ],
             "console": "integratedTerminal",
             "justMyCode": true,

@@ -25,7 +25,7 @@ from typing import Dict, List, Tuple
 from pypdf import PdfReader
 from tqdm import tqdm
 
-from .report import generate_html_report
+from .report_better import generate_html_report
 from .tests import BaselineTest, BasePDFTest, load_tests, save_tests
 from .utils import calculate_bootstrap_ci
 
@@ -399,6 +399,10 @@ def main():
 
     print("\n" + "=" * 60)
     print("Final Summary with 95% Confidence Intervals:")
+
+    # Collect summary stats for HTML report
+    summary_stats_for_report = []
+
     for idx, (candidate_name, _, total_tests, candidate_errors, _, test_type_breakdown, ci, _) in enumerate(summary):
         # Group results by jsonl file
         jsonl_results = {}
@@ -440,6 +444,16 @@ def main():
 
         # Update the overall_score in the summary list for later use (e.g., in permutation tests)
         summary[idx] = (candidate_name, new_overall_score, total_tests, candidate_errors, summary[idx][4], test_type_breakdown, ci, summary[idx][7])
+
+        # Store data for HTML report
+        summary_stats_for_report.append({
+            'name': candidate_name,
+            'overall_score': new_overall_score,
+            'ci': ci,
+            'test_type_breakdown': test_type_breakdown,
+            'jsonl_results': jsonl_results,
+            'has_errors': bool(candidate_errors)
+        })
 
         if candidate_errors:
             status = "FAILED (errors)"
@@ -485,7 +499,9 @@ def main():
             # Use the user-provided filename
             report_path = args.test_report
 
-        generate_html_report(test_results_by_candidate, pdf_folder, report_path)
+        # Determine MD folder for the report
+        md_folder_for_report = args.md_folder if args.md_folder else (candidate_folders[0] if candidate_folders else None)
+        generate_html_report(test_results_by_candidate, pdf_folder, report_path, md_folder_for_report, summary_stats_for_report)
         print(f"\nHTML report saved to: {report_path}")
 
     # Output tests that failed across all candidates if requested
