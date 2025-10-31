@@ -121,10 +121,22 @@ def generate_html_report(
     for candidate in candidates:
         html += f"<h2>Candidate: {candidate}</h2>\n"
 
+        # Count total evaluated tests (excluding missing MD files) for progress bar
+        total_evaluated_tests = 0
+        for pdf_name in test_results_by_candidate[candidate].keys():
+            for page in test_results_by_candidate[candidate][pdf_name].keys():
+                for test, passed, explanation in test_results_by_candidate[candidate][pdf_name][page]:
+                    if explanation != "Missing MD files":
+                        total_evaluated_tests += 1
+
         # Get all PDFs for this candidate
         all_pdfs = sorted(test_results_by_candidate[candidate].keys())
 
-        for pdf_name in tqdm(all_pdfs, desc=f"Processing {candidate}"):
+        # Process tests with accurate progress bar
+        processed_tests = 0
+        pbar = tqdm(total=total_evaluated_tests, desc=f"Processing {candidate}")
+
+        for pdf_name in all_pdfs:
             pages = sorted(test_results_by_candidate[candidate][pdf_name].keys())
 
             for page in pages:
@@ -132,6 +144,13 @@ def generate_html_report(
                 tests = test_results_by_candidate[candidate][pdf_name][page]
 
                 for test, passed, explanation in tests:
+                    # Skip tests that were not evaluated due to missing MD files
+                    if explanation == "Missing MD files":
+                        continue
+
+                    processed_tests += 1
+                    pbar.update(1)
+
                     result_class = "pass" if passed else "fail"
                     status_text = "PASSED" if passed else "FAILED"
                     status_class = "pass-status" if passed else "fail-status"
@@ -141,7 +160,7 @@ def generate_html_report(
     <div class="test-block {result_class}">
         <h3>Test ID: {test.id} <span class="status {status_class}">{status_text}</span></h3>
         <p><strong>PDF:</strong> {pdf_name} | <strong>Page:</strong> {page} | <strong>Type:</strong> {test.type}</p>
-        
+
         <div class="test-details">
 """
 
@@ -215,6 +234,9 @@ def generate_html_report(
 
                 # Add separator between pages
                 html += """    <hr>\n"""
+
+        # Close progress bar for this candidate
+        pbar.close()
 
     # Close HTML
     html += """</body>

@@ -87,7 +87,7 @@ def evaluate_candidate(
         return (0.0, len(all_tests), candidate_errors, test_failures, test_type_breakdown, all_test_scores, test_results)
 
     # Define an inner function to evaluate a single test
-    def process_test(test: BasePDFTest) -> Tuple[float, str, str, List[str], Tuple[bool, str]]:
+    def process_test(test: BasePDFTest) -> Tuple[float | None, str | None, str, List[str], Tuple[bool, str]]:
         local_errors = []
         test_failure = None
         pdf_name = test.pdf
@@ -113,12 +113,14 @@ def evaluate_candidate(
                 page_md_files = exact_match_files
 
         if not page_md_files:
-            local_errors.append(
-                f"Candidate '{candidate_name}' is missing MD repeats for {pdf_name} page {test.page} "
-                f"(expected files matching {md_base}_pg{test.page}_repeat*.md or {md_base}.md)."
-            )
+            if not force:
+                local_errors.append(
+                    f"Candidate '{candidate_name}' is missing MD repeats for {pdf_name} page {test.page} "
+                    f"(expected files matching {md_base}_pg{test.page}_repeat*.md or {md_base}.md)."
+                )
+            # Return None as test_avg to indicate this test should be excluded from statistics
             test_results[pdf_name][test.page].append((test, False, "Missing MD files"))
-            return (0.0, None, test.type, local_errors, (False, "Missing MD files"))
+            return (None, None, test.type, local_errors, (False, "Missing MD files"))
 
         repeat_passes = 0
         num_repeats = 0
@@ -157,6 +159,7 @@ def evaluate_candidate(
         return (test_avg, test_failure, test.type, local_errors, (final_passed, final_explanation))
 
     total_test_score = 0.0
+    evaluated_test_count = 0
     futures = []
     # Use a thread pool to evaluate each test concurrently.
     with ThreadPoolExecutor(max_workers=min(os.cpu_count() or 1, 64)) as executor:
@@ -164,19 +167,24 @@ def evaluate_candidate(
         # tqdm progress bar for this candidate's tests
         for future in tqdm(as_completed(futures), total=len(futures), desc=f"Evaluating tests for {candidate_name}", unit="test"):
             test_avg, test_failure, test_type, errors, _ = future.result()
-            all_test_scores.append(test_avg)
-            total_test_score += test_avg
+
+            # Skip tests that were not evaluated (missing files in --force mode)
+            if test_avg is not None:
+                all_test_scores.append(test_avg)
+                total_test_score += test_avg
+                evaluated_test_count += 1
+                if test_type not in test_type_breakdown:
+                    test_type_breakdown[test_type] = []
+                test_type_breakdown[test_type].append(test_avg)
+
             if test_failure:
                 test_failures.append(test_failure)
-            if test_type not in test_type_breakdown:
-                test_type_breakdown[test_type] = []
-            test_type_breakdown[test_type].append(test_avg)
             local_errors = errors
             if local_errors:
                 candidate_errors.extend(local_errors)
 
-    overall_score = total_test_score / len(all_tests) if all_tests else 0.0
-    return (overall_score, len(all_tests), candidate_errors, test_failures, test_type_breakdown, all_test_scores, test_results)
+    overall_score = total_test_score / evaluated_test_count if evaluated_test_count > 0 else 0.0
+    return (overall_score, evaluated_test_count, candidate_errors, test_failures, test_type_breakdown, all_test_scores, test_results)
 
 
 def main():
@@ -342,20 +350,21 @@ def main():
             if jsonl_file not in jsonl_results:
                 jsonl_results[jsonl_file] = {"total": 0, "passed": 0, "scores": []}
 
-            jsonl_results[jsonl_file]["total"] += 1
-
             # Get the test result for this candidate if it exists
             if not candidate_errors and hasattr(test, "pdf") and hasattr(test, "page"):
                 pdf_name = test.pdf
                 page = test.page
                 if pdf_name in test_results and page in test_results.get(pdf_name, {}):
-                    for t, passed, _ in test_results[pdf_name][page]:
+                    for t, passed, explanation in test_results[pdf_name][page]:
                         if t.id == test.id:
-                            # Store the test score in its jsonl group
-                            result_score = 1.0 if passed else 0.0
-                            jsonl_results[jsonl_file]["scores"].append(result_score)
-                            if passed:
-                                jsonl_results[jsonl_file]["passed"] += 1
+                            # Only count tests that were actually evaluated (not skipped due to missing files)
+                            if explanation != "Missing MD files":
+                                jsonl_results[jsonl_file]["total"] += 1
+                                # Store the test score in its jsonl group
+                                result_score = 1.0 if passed else 0.0
+                                jsonl_results[jsonl_file]["scores"].append(result_score)
+                                if passed:
+                                    jsonl_results[jsonl_file]["passed"] += 1
                             break
 
         # Gather all the scores by jsonl file for CI calculation
@@ -400,21 +409,24 @@ def main():
             if jsonl_file not in jsonl_results:
                 jsonl_results[jsonl_file] = {"total": 0, "passed": 0}
 
-            jsonl_results[jsonl_file]["total"] += 1
-
             # Get the test result for this candidate if it exists
             test_result = None
             if not candidate_errors and hasattr(test, "pdf") and hasattr(test, "page"):
                 pdf_name = test.pdf
                 page = test.page
                 if pdf_name in test_results_by_candidate.get(candidate_name, {}) and page in test_results_by_candidate[candidate_name].get(pdf_name, {}):
-                    for t, passed, _ in test_results_by_candidate[candidate_name][pdf_name][page]:
+                    for t, passed, explanation in test_results_by_candidate[candidate_name][pdf_name][page]:
                         if t.id == test.id:
-                            test_result = passed
+                            # Only count tests that were actually evaluated (not skipped due to missing files)
+                            if explanation != "Missing MD files":
+                                test_result = passed
                             break
 
-            if test_result:
-                jsonl_results[jsonl_file]["passed"] += 1
+            # Only increment counters if test was evaluated
+            if test_result is not None:
+                jsonl_results[jsonl_file]["total"] += 1
+                if test_result:
+                    jsonl_results[jsonl_file]["passed"] += 1
 
         # Calculate new overall score as average of per-JSONL pass rates
         jsonl_pass_rates = []

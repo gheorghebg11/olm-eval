@@ -41,6 +41,8 @@ dependencies = [
   "transformers==4.55.2",
   "beaker-py",
   "pip>=25.3",
+  "llama-cloud-services>=0.6.76",
+  "dotenv>=0.9.9",
 ]
 license = {file = "LICENSE"}
 

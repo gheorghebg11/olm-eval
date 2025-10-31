@@ -86,3 +86,7 @@ __pycache__
 
 docs/build
 site/
+
+
+# Others
+.env
