@@ -665,8 +665,8 @@ def generate_html_report(
 
             // Count distributions for visible tests
             const statusCounts = { pass: 0, fail: 0 };
-            const testTypeCounts = {};
-            const docTypeCounts = {};
+            const testTypeData = {}; // { testType: { pass: count, fail: count } }
+            const docTypeData = {}; // { docType: { pass: count, fail: count } }
 
             testBlocks.forEach(block => {
                 const status = block.getAttribute('data-status');
@@ -694,18 +694,24 @@ def generate_html_report(
                     // Count status
                     statusCounts[status] = (statusCounts[status] || 0) + 1;
 
-                    // Count test type
-                    testTypeCounts[testType] = (testTypeCounts[testType] || 0) + 1;
+                    // Count test type with pass/fail breakdown
+                    if (!testTypeData[testType]) {
+                        testTypeData[testType] = { pass: 0, fail: 0 };
+                    }
+                    testTypeData[testType][status] = (testTypeData[testType][status] || 0) + 1;
 
-                    // Count doc type
-                    docTypeCounts[docType] = (docTypeCounts[docType] || 0) + 1;
+                    // Count doc type with pass/fail breakdown
+                    if (!docTypeData[docType]) {
+                        docTypeData[docType] = { pass: 0, fail: 0 };
+                    }
+                    docTypeData[docType][status] = (docTypeData[docType][status] || 0) + 1;
                 }
             });
 
             // Render charts
             renderBarChart('chart-status', statusCounts, { pass: '#4CAF50', fail: '#F44336' });
-            renderBarChart('chart-test-type', testTypeCounts);
-            renderBarChart('chart-doc-type', docTypeCounts);
+            renderStackedBarChart('chart-test-type', testTypeData);
+            renderStackedBarChart('chart-doc-type', docTypeData);
         }
 
         function renderBarChart(containerId, data, colorMap = {}) {
@@ -734,6 +740,56 @@ def generate_html_report(
                             <div style="background: ${color}; height: 100%; width: ${barWidth}%; transition: width 0.3s;"></div>
                         </div>
                         <div style="min-width: 60px; text-align: right; color: #666;">${count} (${percentage}%)</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+
+            container.innerHTML = html;
+        }
+
+        function renderStackedBarChart(containerId, data) {
+            const container = document.getElementById(containerId);
+
+            // Calculate total for each category and sort by total descending
+            const entries = Object.entries(data)
+                .map(([label, counts]) => {
+                    const total = (counts.pass || 0) + (counts.fail || 0);
+                    return [label, counts, total];
+                })
+                .filter(([_, __, total]) => total > 0)
+                .sort((a, b) => b[2] - a[2]); // Sort by total count descending
+
+            const grandTotal = entries.reduce((sum, [_, __, total]) => sum + total, 0);
+
+            if (grandTotal === 0) {
+                container.innerHTML = '<p style="color: #999; font-size: 14px; margin: 0;">No data</p>';
+                return;
+            }
+
+            const maxCount = Math.max(...entries.map(([_, __, total]) => total));
+
+            let html = '<div style="display: flex; flex-direction: column; gap: 8px;">';
+            entries.forEach(([label, counts, total]) => {
+                const passCount = counts.pass || 0;
+                const failCount = counts.fail || 0;
+                const passPercentage = ((passCount / total) * 100).toFixed(1);
+                const failPercentage = ((failCount / total) * 100).toFixed(1);
+                const barWidth = (total / maxCount) * 100;
+
+                html += `
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                        <div style="min-width: 80px; text-align: right; font-weight: 500;">${label}:</div>
+                        <div style="flex: 1; background: #e0e0e0; border-radius: 3px; height: 20px; position: relative; overflow: hidden;">
+                            <div style="display: flex; height: 100%; width: ${barWidth}%;">
+                                <div style="background: #4CAF50; flex: ${passCount}; transition: flex 0.3s;" title="Pass: ${passCount} (${passPercentage}%)"></div>
+                                <div style="background: #F44336; flex: ${failCount}; transition: flex 0.3s;" title="Fail: ${failCount} (${failPercentage}%)"></div>
+                            </div>
+                        </div>
+                        <div style="min-width: 80px; text-align: right; color: #666;">
+                            <span style="color: #4CAF50; font-weight: 500;">${passCount}</span> /
+                            <span style="color: #F44336; font-weight: 500;">${failCount}</span>
+                        </div>
                     </div>
                 `;
             });
@@ -792,3 +848,23 @@ def generate_html_report(
         f.write(html)
 
     print(f"Simple HTML report generated: {output_file}")
+
+    # Auto-open the report in the default browser
+    import webbrowser
+    import platform
+    try:
+        # Get absolute path for the file URL
+        abs_path = os.path.abspath(output_file)
+        file_url = f"file://{abs_path}"
+
+        # Open in default browser
+        if platform.system() == 'Darwin':  # macOS
+            os.system(f'open "{abs_path}"')
+        elif platform.system() == 'Windows':
+            os.system(f'start "" "{abs_path}"')
+        else:  # Linux and others
+            webbrowser.open(file_url)
+
+        print(f"Report opened in browser: {abs_path}")
+    except Exception as e:
+        print(f"Could not auto-open report: {e}")
