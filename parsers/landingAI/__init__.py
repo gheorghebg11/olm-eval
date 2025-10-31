@@ -1,0 +1,1 @@
+"""LandingAI parser"""

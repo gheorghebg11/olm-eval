@@ -2,12 +2,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run LlamaParse",
+            "name": "Run Parser",
             "type": "debugpy",
             "request": "launch",
-            "module": "parsers.llamaparse.llamaparse",
+            "module": "parsers.run_parser",
             "args": [
                 "/Users/bogdan/Code/olmocr/olmOCR-bench/bench_data_tiny/pdfs",
+                "llamaparse",
+                "--config",
+                "agent_openai_gpt41mini",
                 "-r",  // look for all files in folder recursively
                 "--extensions",
                 ".pdf",
@@ -17,7 +20,7 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "cwd": "${workspaceFolder}"
-        }
+        },
         {
             "name": "Run Benchmark",
             "type": "debugpy",
@@ -32,7 +35,7 @@
                 // "--sample",
                 // "50",
                 "--md_folder",
-                "/Users/bogdan/Code/olmocr/runs/20251031_115057_test_run"
+                "/Users/bogdan/Code/olmocr/runs/20251031_133724_test_run"
             ],
             "console": "integratedTerminal",
             "justMyCode": true,

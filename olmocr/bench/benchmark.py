@@ -501,7 +501,43 @@ def main():
 
         # Determine MD folder for the report
         md_folder_for_report = args.md_folder if args.md_folder else (candidate_folders[0] if candidate_folders else None)
-        generate_html_report(test_results_by_candidate, pdf_folder, report_path, md_folder_for_report, summary_stats_for_report)
+
+        # Load parse config if it exists in the MD folder
+        parse_mode = None
+        parse_config = None
+        if md_folder_for_report:
+            config_path = os.path.join(md_folder_for_report, "_parse_config.json")
+            if os.path.exists(config_path):
+                try:
+                    import json
+                    with open(config_path, 'r') as f:
+                        config_data = json.load(f)
+                    # Extract parser and config from the structure: {"parser": "...", "config": {...}}
+                    parse_mode = config_data.get('parser')
+                    parse_config = config_data.get('config')
+                    print(f"Loaded parse config from: {config_path}")
+                    if parse_mode:
+                        print(f"  Parser: {parse_mode}")
+                except Exception as e:
+                    print(f"Warning: Could not load parse config from {config_path}: {e}")
+
+        # Determine the actual folder containing JSONL files
+        # If args.dir is a file, use its directory; otherwise use input_folder
+        if os.path.isfile(args.dir):
+            jsonl_folder_for_report = os.path.dirname(args.dir)
+        else:
+            jsonl_folder_for_report = input_folder
+
+        generate_html_report(
+            test_results_by_candidate,
+            pdf_folder,
+            report_path,
+            md_folder_for_report,
+            summary_stats_for_report,
+            parse_mode=parse_mode,
+            parse_config=parse_config,
+            jsonl_folder=jsonl_folder_for_report
+        )
         print(f"\nHTML report saved to: {report_path}")
 
     # Output tests that failed across all candidates if requested

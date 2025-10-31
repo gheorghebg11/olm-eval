@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -15,7 +16,10 @@ def generate_html_report(
     pdf_folder: str,
     output_file: str,
     md_folder: str | None = None,
-    summary_stats: List[Dict] | None = None
+    summary_stats: List[Dict] | None = None,
+    parse_mode: str | None = None,
+    parse_config: Dict | None = None,
+    jsonl_folder: str | None = None
 ) -> None:
     """
     Generate a simple static HTML report of test results.
@@ -27,6 +31,9 @@ def generate_html_report(
         output_file: Path to the output HTML file.
         md_folder: Path to the folder containing Markdown files (optional).
         summary_stats: List of dictionaries containing summary statistics to display at the top (optional).
+        parse_mode: The parsing mode used (optional).
+        parse_config: The configuration used for parsing (optional).
+        jsonl_folder: Path to the folder containing JSONL test files (optional).
     """
     candidates = list(test_results_by_candidate.keys())
 
@@ -316,60 +323,121 @@ def generate_html_report(
 """
 
     html += f'<h1 style="text-align: center;">{title}</h1>'
-    html += f"""
-    <ul style="font-size: 14px; color: #666; margin: 20px 0;">
-        <li><strong>PDF paths:</strong> {Path(pdf_folder).resolve()}</li>
-        <li><strong>MD paths:</strong> {md_folder}</li>
-    </ul>
+
+    # Two-column grid layout for configuration and summary
+    html += """
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
 """
 
-    # Add summary statistics if provided
+    # Left column: Configuration
+    html += """
+        <div style="background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; padding: 20px;">
+            <h2 style="margin-top: 0; color: #555;">Configuration</h2>
+"""
+
+    # Add paths
+    html += f"""
+            <ul style="font-size: 14px; color: #666; margin: 10px 0; list-style-type: none; padding-left: 0;">
+                <li style="margin: 5px 0;"><strong>PDFs path:</strong> {Path(pdf_folder).resolve()}</li>
+                <li style="margin: 5px 0;"><strong>MDs path:</strong> {md_folder}</li>
+                <li style="margin: 5px 0;"><strong>GTs path:</strong> {Path(jsonl_folder).resolve() if jsonl_folder else 'N/A'}</li>
+            </ul>
+"""
+
+    # Add parse mode and config if provided
+    if parse_mode or parse_config:
+        html += """            <hr style="margin: 15px 0; border: 0; border-top: 1px solid #ddd;">\n"""
+
+        if parse_mode:
+            html += f"""            <p style="margin: 10px 0;"><strong>Parser:</strong> <code style="background: #e8e8e8; padding: 2px 6px; border-radius: 3px;">{parse_mode}</code></p>\n"""
+
+        if parse_config:
+            # Format the config as pretty-printed JSON
+            config_json = json.dumps(parse_config, indent=2)
+            html += f"""
+            <details style="margin-top: 10px;">
+                <summary style="cursor: pointer; font-weight: bold; margin: 10px 0;">Show Parse Config (Click to expand)</summary>
+                <pre style="background: #f5f5f5; padding: 15px; border: 1px solid #ddd; border-radius: 5px; overflow-x: auto; margin-top: 10px;"><code>{config_json}</code></pre>
+            </details>
+"""
+
+    html += """        </div>
+"""
+
+    # Right column: Summary statistics
     if summary_stats:
         html += """
-    <div style="background: #f0f8ff; border: 2px solid #2196F3; border-radius: 8px; padding: 20px; margin: 20px 0;">
-        <h2 style="margin-top: 0; color: #2196F3;">Final Summary with 95% Confidence Intervals</h2>
+        <div style="background: #f0f8ff; border: 2px solid #2196F3; border-radius: 8px; padding: 20px;">
+            <h2 style="margin-top: 0; color: #2196F3;">Summary</h2>
 """
         for candidate_data in summary_stats:
             candidate_name = candidate_data['name']
             overall_score = candidate_data['overall_score']
-            ci = candidate_data['ci']
+            # ci = candidate_data['ci']
             test_type_breakdown = candidate_data['test_type_breakdown']
             jsonl_results = candidate_data['jsonl_results']
             has_errors = candidate_data.get('has_errors', False)
 
             if has_errors:
                 html += f"""
-        <div style="margin-bottom: 20px;">
-            <h3 style="color: #F44336;">{candidate_name}: FAILED (errors)</h3>
-        </div>
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: #F44336;">{candidate_name}: FAILED (errors)</h3>
+            </div>
 """
             else:
-                half_width = ((ci[1] - ci[0]) / 2) * 100
+                # half_width = ((ci[1] - ci[0]) / 2) * 100
                 html += f"""
-        <div style="margin-bottom: 20px;">
-            <h3>{candidate_name}: Average Score: {overall_score * 100:.1f}% ± {half_width:.1f}% (average of per-JSONL scores)</h3>
-            <ul style="list-style-type: none; padding-left: 20px;">
+            <div style="margin-bottom: 20px;">
+                <h3>Average Score: {overall_score * 100:.1f}% (average of per-JSONL)</h3>
+                <ul style="list-style-type: none; padding-left: 20px;">
 """
                 # Test type breakdown
                 for ttype in sorted(test_type_breakdown.keys()):
                     scores = test_type_breakdown[ttype]
                     avg = sum(scores) / len(scores) * 100 if scores else 0.0
-                    html += f"""                <li><strong>{ttype}:</strong> {avg:.1f}% average pass rate over {len(scores)} tests</li>\n"""
+                    html += f"""                    <li><strong>{ttype}:</strong> {avg:.1f}% average pass rate over {len(scores)} tests</li>\n"""
 
-                html += """            </ul>
-            <h4 style="margin-top: 15px;">Results by JSONL file:</h4>
-            <ul style="list-style-type: none; padding-left: 20px;">
+                html += """                </ul>
+                <h4 style="margin-top: 15px;">Results by JSONL file:</h4>
+                <ul style="list-style-type: none; padding-left: 20px;">
 """
                 for jsonl_file, results in sorted(jsonl_results.items()):
                     if results["total"] > 0:
                         pass_rate = (results["passed"] / results["total"]) * 100
-                        html += f"""                <li><strong>{jsonl_file}:</strong> {pass_rate:.1f}% ({results['passed']}/{results['total']} tests)</li>\n"""
+                        html += f"""                    <li><strong>{jsonl_file}:</strong> {pass_rate:.1f}% ({results['passed']}/{results['total']} tests)</li>\n"""
 
-                html += """            </ul>
+                html += """                </ul>
+            </div>
+"""
+
+        html += """        </div>
+"""
+    else:
+        # If no summary stats, add empty placeholder to maintain grid
+        html += """
+        <div style="background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; padding: 20px;">
+            <h2 style="margin-top: 0; color: #555;">Summary</h2>
+            <p style="color: #666;">No summary statistics available.</p>
         </div>
 """
 
-        html += """    </div>
+    # Close the grid container
+    html += """    </div>
+"""
+
+    # Add filter buttons
+    html += """
+    <div style="margin: 20px 0; text-align: center;">
+        <button onclick="filterTests('all')" id="btn-all" style="background: #2196F3; color: white; border: none; padding: 10px 20px; margin: 0 5px; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;">
+            Show All
+        </button>
+        <button onclick="filterTests('errors')" id="btn-errors" style="background: #555; color: white; border: none; padding: 10px 20px; margin: 0 5px; border-radius: 5px; cursor: pointer; font-size: 14px;">
+            Show Only Errors
+        </button>
+        <button onclick="filterTests('correct')" id="btn-correct" style="background: #555; color: white; border: none; padding: 10px 20px; margin: 0 5px; border-radius: 5px; cursor: pointer; font-size: 14px;">
+            Show Only Correct
+        </button>
+    </div>
 """
 
     # Process all candidates
@@ -415,7 +483,7 @@ def generate_html_report(
 
                     # Begin test block
                     html += f"""
-    <div class="test-block {result_class}">
+    <div class="test-block {result_class}" data-status="{result_class}">
         <h3>Test ID: {test.id} <span class="status {status_class}">{status_text}</span></h3>
         <p><strong>PDF:</strong> {pdf_name} | <strong>Page:</strong> {page} | <strong>Type:</strong> {test.type}</p>
 
@@ -527,8 +595,40 @@ def generate_html_report(
         # Close progress bar for this candidate
         pbar.close()
 
-    # Close HTML
-    html += """</body>
+    # Add JavaScript for filtering
+    html += """
+    <script>
+        let currentFilter = 'all';
+
+        function filterTests(filter) {
+            currentFilter = filter;
+            const testBlocks = document.querySelectorAll('.test-block');
+
+            // Update button styles
+            document.getElementById('btn-all').style.background = filter === 'all' ? '#2196F3' : '#555';
+            document.getElementById('btn-all').style.fontWeight = filter === 'all' ? 'bold' : 'normal';
+            document.getElementById('btn-errors').style.background = filter === 'errors' ? '#F44336' : '#555';
+            document.getElementById('btn-errors').style.fontWeight = filter === 'errors' ? 'bold' : 'normal';
+            document.getElementById('btn-correct').style.background = filter === 'correct' ? '#4CAF50' : '#555';
+            document.getElementById('btn-correct').style.fontWeight = filter === 'correct' ? 'bold' : 'normal';
+
+            // Filter test blocks
+            testBlocks.forEach(block => {
+                const status = block.getAttribute('data-status');
+
+                if (filter === 'all') {
+                    block.style.display = 'block';
+                } else if (filter === 'errors' && status === 'fail') {
+                    block.style.display = 'block';
+                } else if (filter === 'correct' && status === 'pass') {
+                    block.style.display = 'block';
+                } else {
+                    block.style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
 </html>
 """
 
