@@ -313,8 +313,13 @@ def main():
 
     pdf_basenames = [os.path.relpath(p, pdf_folder) for p in all_pdf_files]
 
-    # Find all JSONL files in gt_dir
-    all_jsonl_files = glob.glob(os.path.join(input_folder, "*.jsonl"))
+    # Find all JSONL files in gts folder (alongside pdfs folder)
+    gts_folder = os.path.join(input_folder, "gts")
+    if not os.path.exists(gts_folder):
+        print(f"Error: gts folder not found at {gts_folder}. Expected structure: gt_dir/gts/ and gt_dir/pdfs/", file=sys.stderr)
+        sys.exit(1)
+
+    all_jsonl_files = glob.glob(os.path.join(gts_folder, "*.jsonl"))
     # Filter out backup files with datetime pattern (name_YYYYMMDD_HHMMSS.jsonl)
     jsonl_files = [f for f in all_jsonl_files if not re.search(r'_\d{8}_\d{6}\.jsonl$', f)]
 
@@ -324,7 +329,7 @@ def main():
         print(f"Skipping math-related JSONL files (--skip_math enabled)")
 
     if not jsonl_files:
-        print(f"Error: No .jsonl files found in {input_folder}.", file=sys.stderr)
+        print(f"Error: No .jsonl files found in {gts_folder}.", file=sys.stderr)
         sys.exit(1)
 
     all_tests = []
@@ -583,8 +588,8 @@ def main():
                 except Exception as e:
                     print(f"Warning: Could not load parse config from {config_path}: {e}")
 
-        # Determine the actual folder containing JSONL files
-        jsonl_folder_for_report = input_folder
+        # Determine the actual folder containing JSONL files (gts folder)
+        jsonl_folder_for_report = gts_folder
 
         generate_html_report(
             test_results_by_candidate,

@@ -339,8 +339,8 @@ def generate_html_report(
     html += f"""
             <ul style="font-size: 14px; color: #666; margin: 10px 0; list-style-type: none; padding-left: 0;">
                 <li style="margin: 5px 0;"><strong>PDFs path:</strong> {Path(pdf_folder).resolve()}</li>
-                <li style="margin: 5px 0;"><strong>MDs path:</strong> {md_folder}</li>
                 <li style="margin: 5px 0;"><strong>GTs path:</strong> {Path(jsonl_folder).resolve() if jsonl_folder else 'N/A'}</li>
+                <li style="margin: 5px 0;"><strong>MDs path:</strong> {md_folder}</li>
             </ul>
 """
 
