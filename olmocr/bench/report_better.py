@@ -387,8 +387,7 @@ def generate_html_report(
             else:
                 # half_width = ((ci[1] - ci[0]) / 2) * 100
                 html += f"""
-            <div style="margin-bottom: 20px;">
-                <h3>Average Score: {overall_score * 100:.1f}% (average of per-JSONL)</h3>
+                <h3>Scores per eval type:</h3>
                 <ul style="list-style-type: none; padding-left: 20px;">
 """
                 # Test type breakdown
@@ -398,7 +397,7 @@ def generate_html_report(
                     html += f"""                    <li><strong>{ttype}:</strong> {avg:.1f}% average pass rate over {len(scores)} tests</li>\n"""
 
                 html += """                </ul>
-                <h4 style="margin-top: 15px;">Results by JSONL file:</h4>
+                <h3>Scores per document type:</h3>
                 <ul style="list-style-type: none; padding-left: 20px;">
 """
                 for jsonl_file, results in sorted(jsonl_results.items()):
@@ -407,7 +406,6 @@ def generate_html_report(
                         html += f"""                    <li><strong>{jsonl_file}:</strong> {pass_rate:.1f}% ({results['passed']}/{results['total']} tests)</li>\n"""
 
                 html += """                </ul>
-            </div>
 """
 
         html += """        </div>
@@ -425,18 +423,79 @@ def generate_html_report(
     html += """    </div>
 """
 
-    # Add filter buttons
+    # Collect all unique test types and document types for filters (before generating HTML)
+    all_test_types_temp = set()
+    all_doc_types_temp = set()
+    for candidate in test_results_by_candidate:
+        for pdf_name in test_results_by_candidate[candidate]:
+            # Extract document type from PDF path (parent directory)
+            doc_type = str(Path(pdf_name).parent) if Path(pdf_name).parent != Path('.') else 'root'
+            all_doc_types_temp.add(doc_type)
+            for page in test_results_by_candidate[candidate][pdf_name]:
+                for test, passed, explanation in test_results_by_candidate[candidate][pdf_name][page]:
+                    all_test_types_temp.add(test.type)
+
+    # Add filters and distribution charts aligned side-by-side
     html += """
-    <div style="margin: 20px 0; text-align: center;">
-        <button onclick="filterTests('all')" id="btn-all" style="background: #2196F3; color: white; border: none; padding: 10px 20px; margin: 0 5px; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;">
-            Show All
-        </button>
-        <button onclick="filterTests('errors')" id="btn-errors" style="background: #555; color: white; border: none; padding: 10px 20px; margin: 0 5px; border-radius: 5px; cursor: pointer; font-size: 14px;">
-            Show Only Errors
-        </button>
-        <button onclick="filterTests('correct')" id="btn-correct" style="background: #555; color: white; border: none; padding: 10px 20px; margin: 0 5px; border-radius: 5px; cursor: pointer; font-size: 14px;">
-            Show Only Correct
-        </button>
+    <div style="margin: 20px auto; max-width: 1400px; padding: 0 20px;">
+        <!-- Filters and Charts Grid -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start;">
+            <!-- Status Filter & Chart -->
+            <div>
+                <div style="margin-bottom: 15px; text-align: center;">
+                    <label for="filter-status" style="font-weight: bold; font-size: 20px; display: block; margin-bottom: 8px;">Status</label>
+                    <select id="filter-status" onchange="applyFilters()" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; cursor: pointer;">
+                        <option value="all">All</option>
+                        <option value="errors">Errors Only</option>
+                        <option value="correct">Correct Only</option>
+                    </select>
+                </div>
+                <div style="background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #555; text-align: center;">Test Distribution</h3>
+                    <div id="chart-status" style="min-height: 80px;"></div>
+                </div>
+            </div>
+
+            <!-- Test Type Filter & Chart -->
+            <div>
+                <div style="margin-bottom: 15px; text-align: center;">
+                    <label for="filter-test-type" style="font-weight: bold; font-size: 20px; display: block; margin-bottom: 8px;">Eval type</label>
+                    <select id="filter-test-type" onchange="applyFilters()" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; cursor: pointer;">
+                        <option value="all">All</option>
+"""
+
+    # Add test type options
+    for test_type in sorted(all_test_types_temp):
+        html += f"""                        <option value="{test_type}">{test_type}</option>\n"""
+
+    html += """                    </select>
+                </div>
+                <div style="background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #555; text-align: center;">Test Distribution</h3>
+                    <div id="chart-test-type" style="min-height: 80px;"></div>
+                </div>
+            </div>
+
+            <!-- Doc Type Filter & Chart -->
+            <div>
+                <div style="margin-bottom: 15px; text-align: center;">
+                    <label for="filter-doc-type" style="font-weight: bold; font-size: 20px; display: block; margin-bottom: 8px;">Doc type</label>
+                    <select id="filter-doc-type" onchange="applyFilters()" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; cursor: pointer;">
+                        <option value="all">All</option>
+"""
+
+    # Add document type options
+    for doc_type in sorted(all_doc_types_temp):
+        html += f"""                        <option value="{doc_type}">{doc_type}</option>\n"""
+
+    html += """                    </select>
+                </div>
+                <div style="background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #555; text-align: center;">Test Distribution</h3>
+                    <div id="chart-doc-type" style="min-height: 80px;"></div>
+                </div>
+            </div>
+        </div>
     </div>
 """
 
@@ -483,7 +542,7 @@ def generate_html_report(
 
                     # Begin test block
                     html += f"""
-    <div class="test-block {result_class}" data-status="{result_class}">
+    <div class="test-block {result_class}" data-status="{result_class}" data-test-type="{test.type}" data-doc-type="{str(Path(pdf_name).parent) if Path(pdf_name).parent != Path('.') else 'root'}">
         <h3>Test ID: {test.id} <span class="status {status_class}">{status_text}</span></h3>
         <p><strong>PDF:</strong> {pdf_name} | <strong>Page:</strong> {page} | <strong>Type:</strong> {test.type}</p>
 
@@ -595,38 +654,135 @@ def generate_html_report(
         # Close progress bar for this candidate
         pbar.close()
 
-    # Add JavaScript for filtering
+    # Add JavaScript for filtering and charts
     html += """
     <script>
-        let currentFilter = 'all';
-
-        function filterTests(filter) {
-            currentFilter = filter;
+        function updateCharts() {
             const testBlocks = document.querySelectorAll('.test-block');
+            const statusFilter = document.getElementById('filter-status').value;
+            const testTypeFilter = document.getElementById('filter-test-type').value;
+            const docTypeFilter = document.getElementById('filter-doc-type').value;
 
-            // Update button styles
-            document.getElementById('btn-all').style.background = filter === 'all' ? '#2196F3' : '#555';
-            document.getElementById('btn-all').style.fontWeight = filter === 'all' ? 'bold' : 'normal';
-            document.getElementById('btn-errors').style.background = filter === 'errors' ? '#F44336' : '#555';
-            document.getElementById('btn-errors').style.fontWeight = filter === 'errors' ? 'bold' : 'normal';
-            document.getElementById('btn-correct').style.background = filter === 'correct' ? '#4CAF50' : '#555';
-            document.getElementById('btn-correct').style.fontWeight = filter === 'correct' ? 'bold' : 'normal';
+            // Count distributions for visible tests
+            const statusCounts = { pass: 0, fail: 0 };
+            const testTypeCounts = {};
+            const docTypeCounts = {};
 
-            // Filter test blocks
             testBlocks.forEach(block => {
                 const status = block.getAttribute('data-status');
+                const testType = block.getAttribute('data-test-type');
+                const docType = block.getAttribute('data-doc-type');
 
-                if (filter === 'all') {
-                    block.style.display = 'block';
-                } else if (filter === 'errors' && status === 'fail') {
-                    block.style.display = 'block';
-                } else if (filter === 'correct' && status === 'pass') {
-                    block.style.display = 'block';
-                } else {
-                    block.style.display = 'none';
+                let includeInStats = true;
+
+                // Apply filters to determine which blocks to include in stats
+                if (statusFilter === 'errors' && status !== 'fail') {
+                    includeInStats = false;
+                } else if (statusFilter === 'correct' && status !== 'pass') {
+                    includeInStats = false;
+                }
+
+                if (includeInStats && testTypeFilter !== 'all' && testType !== testTypeFilter) {
+                    includeInStats = false;
+                }
+
+                if (includeInStats && docTypeFilter !== 'all' && docType !== docTypeFilter) {
+                    includeInStats = false;
+                }
+
+                if (includeInStats) {
+                    // Count status
+                    statusCounts[status] = (statusCounts[status] || 0) + 1;
+
+                    // Count test type
+                    testTypeCounts[testType] = (testTypeCounts[testType] || 0) + 1;
+
+                    // Count doc type
+                    docTypeCounts[docType] = (docTypeCounts[docType] || 0) + 1;
                 }
             });
+
+            // Render charts
+            renderBarChart('chart-status', statusCounts, { pass: '#4CAF50', fail: '#F44336' });
+            renderBarChart('chart-test-type', testTypeCounts);
+            renderBarChart('chart-doc-type', docTypeCounts);
         }
+
+        function renderBarChart(containerId, data, colorMap = {}) {
+            const container = document.getElementById(containerId);
+            // Filter out entries with 0 count and sort by count descending
+            const entries = Object.entries(data).filter(([_, count]) => count > 0).sort((a, b) => b[1] - a[1]);
+            const total = entries.reduce((sum, [_, count]) => sum + count, 0);
+
+            if (total === 0) {
+                container.innerHTML = '<p style="color: #999; font-size: 14px; margin: 0;">No data</p>';
+                return;
+            }
+
+            const maxCount = Math.max(...entries.map(([_, count]) => count));
+
+            let html = '<div style="display: flex; flex-direction: column; gap: 8px;">';
+            entries.forEach(([label, count]) => {
+                const percentage = ((count / total) * 100).toFixed(1);
+                const barWidth = (count / maxCount) * 100;
+                const color = colorMap[label] || '#2196F3';
+
+                html += `
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                        <div style="min-width: 80px; text-align: right; font-weight: 500;">${label}:</div>
+                        <div style="flex: 1; background: #e0e0e0; border-radius: 3px; height: 20px; position: relative; overflow: hidden;">
+                            <div style="background: ${color}; height: 100%; width: ${barWidth}%; transition: width 0.3s;"></div>
+                        </div>
+                        <div style="min-width: 60px; text-align: right; color: #666;">${count} (${percentage}%)</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+
+            container.innerHTML = html;
+        }
+
+        function applyFilters() {
+            const testBlocks = document.querySelectorAll('.test-block');
+            const statusFilter = document.getElementById('filter-status').value;
+            const testTypeFilter = document.getElementById('filter-test-type').value;
+            const docTypeFilter = document.getElementById('filter-doc-type').value;
+
+            testBlocks.forEach(block => {
+                const status = block.getAttribute('data-status');
+                const testType = block.getAttribute('data-test-type');
+                const docType = block.getAttribute('data-doc-type');
+
+                let showBlock = true;
+
+                // Apply status filter
+                if (statusFilter === 'errors' && status !== 'fail') {
+                    showBlock = false;
+                } else if (statusFilter === 'correct' && status !== 'pass') {
+                    showBlock = false;
+                }
+
+                // Apply test type filter
+                if (showBlock && testTypeFilter !== 'all' && testType !== testTypeFilter) {
+                    showBlock = false;
+                }
+
+                // Apply document type filter
+                if (showBlock && docTypeFilter !== 'all' && docType !== docTypeFilter) {
+                    showBlock = false;
+                }
+
+                block.style.display = showBlock ? 'block' : 'none';
+            });
+
+            // Update charts after filtering
+            updateCharts();
+        }
+
+        // Initialize charts on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            updateCharts();
+        });
     </script>
 </body>
 </html>
